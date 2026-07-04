@@ -14,6 +14,7 @@ import type { Work } from './types'
 
 const TOKEN_STORAGE_KEY = 'annict_token'
 const HIDDEN_STORAGE_KEY = 'hidden_work_ids'
+const FAVORITE_STORAGE_KEY = 'favorite_work_ids'
 const SERVICES_STORAGE_KEY = 'enabled_service_keys'
 const HIDE_LATE_STORAGE_KEY = 'hide_late_entries'
 
@@ -24,9 +25,9 @@ function loadToken(): string {
   return localStorage.getItem(TOKEN_STORAGE_KEY) ?? (import.meta.env.VITE_ANNICT_TOKEN as string | undefined) ?? ''
 }
 
-function loadHiddenIds(): number[] {
+function loadIdList(key: string): number[] {
   try {
-    const raw = localStorage.getItem(HIDDEN_STORAGE_KEY)
+    const raw = localStorage.getItem(key)
     const parsed = raw ? JSON.parse(raw) : []
     return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'number') : []
   } catch {
@@ -99,11 +100,44 @@ function useIsMobile(): boolean {
   return isMobile
 }
 
-function EntryCard({ entry, onHide }: { entry: CalendarEntry; onHide: (workId: number) => void }) {
+function FavButton({
+  isFavorite,
+  title,
+  onToggle,
+}: {
+  isFavorite: boolean
+  title: string
+  onToggle: () => void
+}) {
+  return (
+    <button
+      className={`fav-button${isFavorite ? ' on' : ''}`}
+      title={isFavorite ? 'お気に入りから外す' : 'お気に入りに登録'}
+      aria-label={`${title} を${isFavorite ? 'お気に入りから外す' : 'お気に入りに登録'}`}
+      aria-pressed={isFavorite}
+      onClick={onToggle}
+    >
+      {isFavorite ? '★' : '☆'}
+    </button>
+  )
+}
+
+function EntryCard({
+  entry,
+  isFavorite,
+  onToggleFavorite,
+  onHide,
+}: {
+  entry: CalendarEntry
+  isFavorite: boolean
+  onToggleFavorite: (workId: number) => void
+  onHide: (workId: number) => void
+}) {
   const [expanded, setExpanded] = useState(false)
 
-  // 遅れ配信は畳んだコンパクト表示が既定。クリックで展開すると favicon 付きの通常カードになる
-  if (entry.isLate && !expanded) {
+  // 遅れ配信は畳んだコンパクト表示が既定。ただしお気に入りは見逃さないよう常に展開する。
+  // クリックで展開すると favicon 付きの通常カードになる
+  if (entry.isLate && !expanded && !isFavorite) {
     return (
       <article className="entry late collapsed">
         <button
@@ -116,14 +150,24 @@ function EntryCard({ entry, onHide }: { entry: CalendarEntry; onHide: (workId: n
           <span className="time">{entry.time}</span>
           <span className="collapsed-title">{entry.title}</span>
         </button>
+        <FavButton
+          isFavorite={isFavorite}
+          title={entry.title}
+          onToggle={() => onToggleFavorite(entry.workId)}
+        />
       </article>
     )
   }
 
   return (
-    <article className={`entry${entry.isLate ? ' late' : ''}`}>
+    <article className={`entry${entry.isLate ? ' late' : ''}${isFavorite ? ' favorite' : ''}`}>
       <div className="entry-meta">
-        {entry.isLate && (
+        <FavButton
+          isFavorite={isFavorite}
+          title={entry.title}
+          onToggle={() => onToggleFavorite(entry.workId)}
+        />
+        {entry.isLate && !isFavorite && (
           <button
             className="expand-toggle"
             title="畳む"
@@ -171,21 +215,39 @@ function EntryCard({ entry, onHide }: { entry: CalendarEntry; onHide: (workId: n
   )
 }
 
+// お気に入りを隠さず先頭へ浮上させる(元の時刻順は各グループ内で保たれる)
+function orderEntries(
+  entries: CalendarEntry[],
+  hideLate: boolean,
+  favorites: ReadonlySet<number>,
+): CalendarEntry[] {
+  const filtered = hideLate
+    ? entries.filter((e) => !e.isLate || favorites.has(e.workId))
+    : entries
+  return [...filtered].sort(
+    (a, b) => (favorites.has(a.workId) ? 0 : 1) - (favorites.has(b.workId) ? 0 : 1),
+  )
+}
+
 function Calendar({
   days,
   hideLate,
   showDates,
+  favorites,
+  onToggleFavorite,
   onHide,
 }: {
   days: DayColumn[]
   hideLate: boolean
   showDates: boolean
+  favorites: ReadonlySet<number>
+  onToggleFavorite: (workId: number) => void
   onHide: (workId: number) => void
 }) {
   return (
     <div className="calendar">
       {days.map((day) => {
-        const entries = hideLate ? day.entries.filter((e) => !e.isLate) : day.entries
+        const entries = orderEntries(day.entries, hideLate, favorites)
         return (
           <section
             key={day.dateLabel}
@@ -199,7 +261,13 @@ function Calendar({
             <div className="day-entries">
               {entries.length === 0 && <p className="empty">配信なし</p>}
               {entries.map((entry) => (
-                <EntryCard key={entry.workId} entry={entry} onHide={onHide} />
+                <EntryCard
+                  key={entry.workId}
+                  entry={entry}
+                  isFavorite={favorites.has(entry.workId)}
+                  onToggleFavorite={onToggleFavorite}
+                  onHide={onHide}
+                />
               ))}
             </div>
           </section>
@@ -213,11 +281,15 @@ function MobileCalendar({
   days,
   hideLate,
   showDates,
+  favorites,
+  onToggleFavorite,
   onHide,
 }: {
   days: DayColumn[]
   hideLate: boolean
   showDates: boolean
+  favorites: ReadonlySet<number>
+  onToggleFavorite: (workId: number) => void
   onHide: (workId: number) => void
 }) {
   // 初期表示は今日(先頭列は昨日なので通常 index 1)
@@ -225,7 +297,7 @@ function MobileCalendar({
   const touchStart = useRef<{ x: number; y: number } | null>(null)
 
   const day = days[dayIndex]
-  const entries = hideLate ? day.entries.filter((e) => !e.isLate) : day.entries
+  const entries = orderEntries(day.entries, hideLate, favorites)
 
   const handleTouchStart = (e: React.TouchEvent) => {
     touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
@@ -273,7 +345,13 @@ function MobileCalendar({
         <div className="day-entries">
           {entries.length === 0 && <p className="empty">配信なし</p>}
           {entries.map((entry) => (
-            <EntryCard key={entry.workId} entry={entry} onHide={onHide} />
+            <EntryCard
+              key={entry.workId}
+              entry={entry}
+              isFavorite={favorites.has(entry.workId)}
+              onToggleFavorite={onToggleFavorite}
+              onHide={onHide}
+            />
           ))}
         </div>
       </section>
@@ -357,8 +435,9 @@ export default function App() {
   const [works, setWorks] = useState<Work[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [hiddenIds, setHiddenIds] = useState<number[]>(loadHiddenIds)
+  const [hiddenIds, setHiddenIds] = useState<number[]>(() => loadIdList(HIDDEN_STORAGE_KEY))
   const [showHiddenPanel, setShowHiddenPanel] = useState(false)
+  const [favoriteIds, setFavoriteIds] = useState<number[]>(() => loadIdList(FAVORITE_STORAGE_KEY))
   const [enabledKeys, setEnabledKeys] = useState<string[]>(loadEnabledServiceKeys)
   const [showServicePanel, setShowServicePanel] = useState(false)
   const [hideLate, setHideLate] = useState(() => localStorage.getItem(HIDE_LATE_STORAGE_KEY) === '1')
@@ -415,6 +494,14 @@ export default function App() {
     setShowHiddenPanel(false)
   }
 
+  const toggleFavorite = (workId: number) => {
+    const next = favoriteIds.includes(workId)
+      ? favoriteIds.filter((id) => id !== workId)
+      : [...favoriteIds, workId]
+    setFavoriteIds(next)
+    localStorage.setItem(FAVORITE_STORAGE_KEY, JSON.stringify(next))
+  }
+
   const updateEnabledKeys = (keys: string[]) => {
     setEnabledKeys(keys)
     localStorage.setItem(SERVICES_STORAGE_KEY, JSON.stringify(keys))
@@ -451,6 +538,7 @@ export default function App() {
         .sort((a, b) => a.title.localeCompare(b.title, 'ja')),
     [works, hiddenIds],
   )
+  const favorites = useMemo(() => new Set(favoriteIds), [favoriteIds])
 
   return (
     <div className="app">
@@ -543,10 +631,19 @@ export default function App() {
             days={days}
             hideLate={hideLate}
             showDates={isCurrentSeason}
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
             onHide={hideWork}
           />
         ) : (
-          <Calendar days={days} hideLate={hideLate} showDates={isCurrentSeason} onHide={hideWork} />
+          <Calendar
+            days={days}
+            hideLate={hideLate}
+            showDates={isCurrentSeason}
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
+            onHide={hideWork}
+          />
         )
       )}
     </div>

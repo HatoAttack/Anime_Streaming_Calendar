@@ -8,6 +8,7 @@
   --text-dim: #9aa0b0;
   --accent: #ff5c8a;
   --today: #ffb648;
+  --fav: #ffd24d;
   --sunday: #ff7a7a;
   --saturday: #7ab5ff;
 }
@@ -410,10 +411,62 @@ button.secondary {
   color: var(--accent);
 }
 
+/* お気に入り(★)ボタンと強調表示 */
+.fav-button {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+/* 未登録の星はホバー時のみ、登録済みの星は常に表示する */
+.entry:hover .fav-button,
+.entry.collapsed:hover .fav-button,
+.fav-button:focus-visible,
+.fav-button.on {
+  opacity: 1;
+}
+
+.fav-button.on {
+  color: var(--fav);
+}
+
+.fav-button:hover {
+  color: var(--fav);
+}
+
+.entry.favorite {
+  border-color: var(--fav);
+  box-shadow: 0 0 0 1px var(--fav);
+  background: rgba(255, 210, 77, 0.08);
+}
+
+.entry.favorite:hover {
+  background: rgba(255, 210, 77, 0.14);
+}
+
 /* 遅れ配信(週内 2 回目以降)の折りたたみ表示 */
 .entry.collapsed {
   padding: 0;
   border-style: dashed;
+  display: flex;
+  align-items: center;
+}
+
+.entry.collapsed .expand-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry.collapsed .fav-button {
+  padding: 0 6px;
+  flex-shrink: 0;
 }
 
 .expand-row {
