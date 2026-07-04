@@ -458,7 +458,7 @@ export default function App() {
         <div>
           <h1>
             アニ曜日
-            <span className="tagline">このアニメ、何曜日?</span>
+            <span className="tagline">このアニメ、サブスク配信は何曜日?</span>
           </h1>
           <div className="season-nav">
             <button
