@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   addSeasons,
   fetchSeasonWorks,
@@ -85,6 +85,18 @@ function TokenSetup({ onSave }: { onSave: (token: string) => void }) {
       <p className="note">トークンはこのブラウザの localStorage にのみ保存されます。</p>
     </div>
   )
+}
+
+// スマートフォン幅では 7 列グリッドではなく 1 日表示+曜日タブ/スワイプに切り替える
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 640px)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)')
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return isMobile
 }
 
 function EntryCard({ entry, onHide }: { entry: CalendarEntry; onHide: (workId: number) => void }) {
@@ -197,6 +209,79 @@ function Calendar({
   )
 }
 
+function MobileCalendar({
+  days,
+  hideLate,
+  showDates,
+  onHide,
+}: {
+  days: DayColumn[]
+  hideLate: boolean
+  showDates: boolean
+  onHide: (workId: number) => void
+}) {
+  // 初期表示は今日(先頭列は昨日なので通常 index 1)
+  const [dayIndex, setDayIndex] = useState(() => Math.max(days.findIndex((d) => d.isToday), 0))
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
+
+  const day = days[dayIndex]
+  const entries = hideLate ? day.entries.filter((e) => !e.isLate) : day.entries
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+  }
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const start = touchStart.current
+    touchStart.current = null
+    if (!start) return
+    const dx = e.changedTouches[0].clientX - start.x
+    const dy = e.changedTouches[0].clientY - start.y
+    // 縦スクロールと区別するため、横方向に十分大きい移動だけ曜日送りにする
+    if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 1.5) return
+    if (dx < 0) {
+      setDayIndex((i) => Math.min(i + 1, days.length - 1))
+    } else {
+      setDayIndex((i) => Math.max(i - 1, 0))
+    }
+  }
+
+  return (
+    <div className="mobile-calendar">
+      <div className="day-tabs">
+        {days.map((d, i) => (
+          <button
+            key={d.dateLabel}
+            className={`day-tab weekday-${d.weekday}${i === dayIndex ? ' active' : ''}${showDates && d.isToday ? ' is-today' : ''}`}
+            onClick={() => setDayIndex(i)}
+          >
+            <span className="weekday">{d.weekdayLabel}</span>
+            {showDates && <span className="date">{d.dateLabel}</span>}
+          </button>
+        ))}
+      </div>
+      <section
+        className="day-column mobile"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        <header className={`day-header weekday-${day.weekday}`}>
+          <span className="weekday">{day.weekdayLabel}曜日</span>
+          {showDates && <span className="date">{day.dateLabel}</span>}
+          {showDates && day.isToday && <span className="today-badge">今日</span>}
+        </header>
+        <div className="day-entries">
+          {entries.length === 0 && <p className="empty">配信なし</p>}
+          {entries.map((entry) => (
+            <EntryCard key={entry.workId} entry={entry} onHide={onHide} />
+          ))}
+        </div>
+      </section>
+      <p className="swipe-hint">左右にスワイプで曜日を移動できます</p>
+    </div>
+  )
+}
+
 function ServicePanel({
   enabledKeys,
   onToggle,
@@ -277,6 +362,7 @@ export default function App() {
   const [enabledKeys, setEnabledKeys] = useState<string[]>(loadEnabledServiceKeys)
   const [showServicePanel, setShowServicePanel] = useState(false)
   const [hideLate, setHideLate] = useState(() => localStorage.getItem(HIDE_LATE_STORAGE_KEY) === '1')
+  const isMobile = useIsMobile()
 
   const currentSeason = useMemo(() => getCurrentSeason(), [])
   const [season, setSeason] = useState<Season>(currentSeason)
@@ -449,7 +535,16 @@ export default function App() {
         </div>
       )}
       {token && !loading && !error && days && (
-        <Calendar days={days} hideLate={hideLate} showDates={isCurrentSeason} onHide={hideWork} />
+        isMobile ? (
+          <MobileCalendar
+            days={days}
+            hideLate={hideLate}
+            showDates={isCurrentSeason}
+            onHide={hideWork}
+          />
+        ) : (
+          <Calendar days={days} hideLate={hideLate} showDates={isCurrentSeason} onHide={hideWork} />
+        )
       )}
     </div>
   )
