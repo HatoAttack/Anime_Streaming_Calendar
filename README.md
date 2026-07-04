@@ -1,4 +1,4 @@
-# アニメ配信カレンダー
+# アニ曜日 — このアニメ、何曜日?
 
 今クールにテレビ・ウェブで放送されるアニメの配信曜日を、動画配信ストリーミングサービスごとに確認できるウェブアプリです。情報は [Annict GraphQL API](https://developers.annict.com/docs/graphql-api/beta) から取得します。
 

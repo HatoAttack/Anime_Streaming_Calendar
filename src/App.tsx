@@ -456,7 +456,10 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <div>
-          <h1>アニメ配信カレンダー</h1>
+          <h1>
+            アニ曜日
+            <span className="tagline">このアニメ、何曜日?</span>
+          </h1>
           <div className="season-nav">
             <button
               className="secondary season-arrow"
