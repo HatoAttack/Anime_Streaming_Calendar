@@ -1,0 +1,505 @@
+:root {
+  color-scheme: dark;
+  --bg: #12141a;
+  --panel: #1c1f28;
+  --panel-hover: #232734;
+  --border: #2c3040;
+  --text: #e8eaf0;
+  --text-dim: #9aa0b0;
+  --accent: #ff5c8a;
+  --today: #ffb648;
+  --sunday: #ff7a7a;
+  --saturday: #7ab5ff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Yu Gothic UI', Meiryo, sans-serif;
+}
+
+.app {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 16px 20px 40px;
+}
+
+.app-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.season-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.season {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 8.5em;
+  text-align: center;
+}
+
+.season-arrow {
+  padding: 4px 10px;
+}
+
+.work-count {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle:has(input:checked) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.toggle input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.status,
+.empty {
+  color: var(--text-dim);
+}
+
+.error {
+  background: #3a1e26;
+  border: 1px solid #6b2c3d;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+/* トークン設定画面 */
+.token-setup {
+  max-width: 560px;
+  margin: 48px auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px 28px;
+  line-height: 1.7;
+}
+
+.token-setup h2 {
+  margin-top: 0;
+}
+
+.token-setup a {
+  color: var(--accent);
+}
+
+.token-setup form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.token-setup input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.note {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* サービス選択パネル */
+.service-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+
+.service-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.service-panel h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.service-panel-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.service-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px;
+}
+
+.service-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.service-item.on {
+  color: var(--text);
+  border-color: #3d4358;
+}
+
+.service-item:hover {
+  background: var(--panel-hover);
+}
+
+.service-item input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.service-item img {
+  border-radius: 3px;
+}
+
+.service-item:not(.on) img {
+  filter: grayscale(1);
+  opacity: 0.5;
+}
+
+/* 非表示リスト */
+.hidden-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+
+.hidden-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hidden-panel h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.hidden-panel ul {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.hidden-panel li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.hidden-panel li button {
+  flex-shrink: 0;
+  padding: 4px 10px;
+}
+
+/* カレンダー */
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(160px, 1fr));
+  gap: 10px;
+  overflow-x: auto;
+}
+
+.day-column {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+}
+
+.day-column.today {
+  border-color: var(--today);
+  box-shadow: 0 0 0 1px var(--today);
+}
+
+.day-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.day-header .weekday {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.weekday-0 .weekday {
+  color: var(--sunday);
+}
+
+.weekday-6 .weekday {
+  color: var(--saturday);
+}
+
+.day-header .date {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.today-badge {
+  margin-left: auto;
+  background: var(--today);
+  color: #201500;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.day-entries {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.day-entries .empty {
+  font-size: 12px;
+  text-align: center;
+  margin: 12px 0;
+}
+
+.entry {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.entry:hover {
+  background: var(--panel-hover);
+}
+
+.entry-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.favicons {
+  margin-left: auto;
+}
+
+.hide-button {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.entry:hover .hide-button,
+.hide-button:focus-visible {
+  opacity: 1;
+}
+
+.hide-button:hover {
+  color: var(--accent);
+}
+
+/* 遅れ配信(週内 2 回目以降)の折りたたみ表示 */
+.entry.collapsed {
+  padding: 0;
+  border-style: dashed;
+}
+
+.expand-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.expand-row:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.expand-row .time {
+  flex-shrink: 0;
+}
+
+.collapsed-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex-shrink: 0;
+  font-size: 10px;
+}
+
+.entry.late:not(.collapsed) {
+  border-style: dashed;
+}
+
+.expand-toggle {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 10px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.expand-toggle:hover {
+  color: var(--text);
+}
+
+.entry .time {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.favicons {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: nowrap;
+}
+
+.favicons img {
+  display: block;
+  border-radius: 3px;
+}
+
+.more-favicons {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--panel-hover);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 5px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+/* タイトルは 1 行に切り詰める(全文は title 属性のツールチップで見える) */
+.entry .title {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 12.5px;
+  line-height: 1.4;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entry .title:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
