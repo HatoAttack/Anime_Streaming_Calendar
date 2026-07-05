@@ -1,3 +1,5 @@
+/* 既定はダークテーマ。data-theme は App が light / dark に解決して設定する
+   (「システム」選択時は OS 設定に追従して切り替わる) */
 :root {
   color-scheme: dark;
   --bg: #12141a;
@@ -9,8 +11,27 @@
   --accent: #ff5c8a;
   --today: #ffb648;
   --fav: #ffd24d;
+  --fav-bg: rgba(255, 210, 77, 0.08);
+  --fav-bg-hover: rgba(255, 210, 77, 0.14);
   --sunday: #ff7a7a;
   --saturday: #7ab5ff;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4f5f8;
+  --panel: #ffffff;
+  --panel-hover: #eceef4;
+  --border: #d7dbe4;
+  --text: #1d2532;
+  --text-dim: #647082;
+  --accent: #e0447a;
+  --today: #d98a00;
+  --fav: #d9a800;
+  --fav-bg: rgba(217, 168, 0, 0.1);
+  --fav-bg-hover: rgba(217, 168, 0, 0.18);
+  --sunday: #d64545;
+  --saturday: #2f6fd0;
 }
 
 * {
@@ -444,11 +465,11 @@ button.secondary {
 .entry.favorite {
   border-color: var(--fav);
   box-shadow: 0 0 0 1px var(--fav);
-  background: rgba(255, 210, 77, 0.08);
+  background: var(--fav-bg);
 }
 
 .entry.favorite:hover {
-  background: rgba(255, 210, 77, 0.14);
+  background: var(--fav-bg-hover);
 }
 
 /* 遅れ配信(週内 2 回目以降)の折りたたみ表示 */
