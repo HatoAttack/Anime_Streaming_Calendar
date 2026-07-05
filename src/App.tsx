@@ -258,15 +258,14 @@ function EntryCard({
   )
 }
 
-// お気に入りを隠さず先頭へ浮上させる(元の時刻順は各グループ内で保たれる)
+// お気に入りを先頭へ浮上させる(元の時刻順は各グループ内で保たれる)。
+// 「遅れ配信を隠す」はお気に入りにも等しく適用し、最速配信だけを残す
 function orderEntries(
   entries: CalendarEntry[],
   hideLate: boolean,
   favorites: ReadonlySet<number>,
 ): CalendarEntry[] {
-  const filtered = hideLate
-    ? entries.filter((e) => !e.isLate || favorites.has(e.workId))
-    : entries
+  const filtered = hideLate ? entries.filter((e) => !e.isLate) : entries
   return [...filtered].sort(
     (a, b) => (favorites.has(a.workId) ? 0 : 1) - (favorites.has(b.workId) ? 0 : 1),
   )
