@@ -17,6 +17,49 @@ const HIDDEN_STORAGE_KEY = 'hidden_work_ids'
 const FAVORITE_STORAGE_KEY = 'favorite_work_ids'
 const SERVICES_STORAGE_KEY = 'enabled_service_keys'
 const HIDE_LATE_STORAGE_KEY = 'hide_late_entries'
+const THEME_STORAGE_KEY = 'theme_mode'
+
+type ThemeMode = 'system' | 'light' | 'dark'
+
+const THEME_ORDER: ThemeMode[] = ['system', 'light', 'dark']
+const THEME_LABELS: Record<ThemeMode, string> = {
+  system: '🖥️ システム',
+  light: '☀️ ライト',
+  dark: '🌙 ダーク',
+}
+
+function loadThemeMode(): ThemeMode {
+  const raw = localStorage.getItem(THEME_STORAGE_KEY)
+  return raw === 'light' || raw === 'dark' ? raw : 'system'
+}
+
+// テーマ選択(システム/ライト/ダーク)を <html> の data-theme に反映する。
+// 「システム」では OS の設定に追従し、OS 側の切り替えにもリアルタイムで反応する
+function useTheme(): [ThemeMode, () => void] {
+  const [mode, setMode] = useState<ThemeMode>(loadThemeMode)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: light)')
+    const apply = () => {
+      const resolved = mode === 'system' ? (mq.matches ? 'light' : 'dark') : mode
+      document.documentElement.dataset.theme = resolved
+    }
+    apply()
+    if (mode !== 'system') return
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [mode])
+
+  const cycle = () => {
+    setMode((current) => {
+      const next = THEME_ORDER[(THEME_ORDER.indexOf(current) + 1) % THEME_ORDER.length]
+      localStorage.setItem(THEME_STORAGE_KEY, next)
+      return next
+    })
+  }
+
+  return [mode, cycle]
+}
 
 // カードを縦に伸ばさないため favicon はこの数まで表示し、残りは +N バッジにまとめる
 const MAX_FAVICONS = 4
@@ -442,6 +485,7 @@ export default function App() {
   const [showServicePanel, setShowServicePanel] = useState(false)
   const [hideLate, setHideLate] = useState(() => localStorage.getItem(HIDE_LATE_STORAGE_KEY) === '1')
   const isMobile = useIsMobile()
+  const [themeMode, cycleTheme] = useTheme()
 
   const currentSeason = useMemo(() => getCurrentSeason(), [])
   const [season, setSeason] = useState<Season>(currentSeason)
@@ -574,8 +618,16 @@ export default function App() {
             {days && <span className="work-count">配信中 {shownCount} 作品</span>}
           </div>
         </div>
-        {token && (
-          <div className="actions">
+        <div className="actions">
+          <button
+            className="secondary"
+            onClick={cycleTheme}
+            title="テーマ切り替え(システム → ライト → ダーク)"
+          >
+            {THEME_LABELS[themeMode]}
+          </button>
+          {token && (
+            <>
             <label className="toggle" title="週内で 2 番目以降の配信(遅れ配信)をカレンダーから隠します。選択中のサービスの中で最も早い配信は常に表示されます。">
               <input type="checkbox" checked={hideLate} onChange={toggleHideLate} />
               遅れ配信を隠す
@@ -602,8 +654,9 @@ export default function App() {
             </button>
             <button onClick={() => void load(token)} disabled={loading}>再読み込み</button>
             <button className="secondary" onClick={clearToken}>トークン変更</button>
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </header>
 
       {!token && <TokenSetup onSave={saveToken} />}
