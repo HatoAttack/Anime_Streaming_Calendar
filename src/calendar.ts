@@ -59,28 +59,26 @@ export function buildWeek(
     })
   }
 
-  const nowMs = now.getTime()
-
   for (const work of works) {
     if (work.media !== 'TV' && work.media !== 'WEB') continue
 
-    // サービスごとに現在時刻へ最も近い配信予定を 1 件選ぶ
-    const nearestByService = new Map<string, { service: StreamingService; startedAt: string; diff: number }>()
-    for (const program of work.programs?.nodes ?? []) {
-      if (!program || program.rebroadcast) continue
-      const service = matchService(program.channel.name)
-      if (!service) continue
-      if (enabledServiceKeys && !enabledServiceKeys.has(service.key)) continue
-      const diff = Math.abs(new Date(program.startedAt).getTime() - nowMs)
-      const current = nearestByService.get(service.key)
-      if (!current || diff < current.diff) {
-        nearestByService.set(service.key, { service, startedAt: program.startedAt, diff })
+    const programs = collectServicePrograms(work, enabledServiceKeys)
+    if (programs.length === 0) continue
+
+    const fastestWeekday = findFastestWeekday(programs)
+
+    // サービスごとの代表的な配信枠(曜日・時刻)を求める。週次で安定しているので
+    // 最新の配信を代表に採る。同じ曜日に配信されるサービスは 1 エントリにまとめる。
+    const repByService = new Map<string, { service: StreamingService; startedAt: string }>()
+    for (const p of programs) {
+      const cur = repByService.get(p.service.key)
+      if (!cur || p.startedAt > cur.startedAt) {
+        repByService.set(p.service.key, { service: p.service, startedAt: p.startedAt })
       }
     }
 
-    // 同じ曜日に配信されるサービスは 1 エントリにまとめる(時刻は最も早いもの)
     const byWeekday = new Map<number, { minutes: number; time: string; services: StreamingService[] }>()
-    for (const { service, startedAt } of nearestByService.values()) {
+    for (const { service, startedAt } of repByService.values()) {
       const { weekday, minutes, time } = jstInfo(startedAt)
       const entry = byWeekday.get(weekday)
       if (!entry) {
@@ -104,7 +102,8 @@ export function buildWeek(
         time: info.time,
         minutes: info.minutes,
         services: info.services,
-        isLate: false,
+        // 最速配信の曜日以外はすべて遅れ配信(同一エピソードをより遅く配信するもの)
+        isLate: fastestWeekday !== null && weekday !== fastestWeekday,
       })
     }
   }
@@ -113,17 +112,101 @@ export function buildWeek(
     day.entries.sort((a, b) => a.minutes - b.minutes || a.title.localeCompare(b.title, 'ja'))
   }
 
-  // 週の左の列(昨日)から順に見て、2 回目以降に登場する作品を「遅れ配信」として畳む対象にする
-  const seenWorkIds = new Set<number>()
-  for (const day of days) {
-    for (const entry of day.entries) {
-      if (seenWorkIds.has(entry.workId)) {
-        entry.isLate = true
-      } else {
-        seenWorkIds.add(entry.workId)
-      }
-    }
+  return days
+}
+
+interface ServiceProgram {
+  service: StreamingService
+  startedAt: string
+  episodeId: number | null
+}
+
+// 作品の非再放送・対象サービスの配信予定を集める
+function collectServicePrograms(
+  work: Work,
+  enabledServiceKeys: ReadonlySet<string> | null,
+): ServiceProgram[] {
+  const result: ServiceProgram[] = []
+  for (const program of work.programs?.nodes ?? []) {
+    if (!program || program.rebroadcast) continue
+    const service = matchService(program.channel.name)
+    if (!service) continue
+    if (enabledServiceKeys && !enabledServiceKeys.has(service.key)) continue
+    result.push({
+      service,
+      startedAt: program.startedAt,
+      episodeId: program.episode?.annictId ?? null,
+    })
+  }
+  return result
+}
+
+// 同じエピソードを各サービスがいつ配信したかを突き合わせ、
+// 「常に最も早く配信するサービス(=最速)」の曜日を求める。
+// この判定はチェックする曜日に依存しない。
+function findFastestWeekday(programs: ServiceProgram[]): number | null {
+  // エピソードごとの最速配信時刻(サービス横断)
+  const earliestByEpisode = new Map<number, number>()
+  for (const p of programs) {
+    if (p.episodeId === null) continue
+    const t = new Date(p.startedAt).getTime()
+    const cur = earliestByEpisode.get(p.episodeId)
+    if (cur === undefined || t < cur) earliestByEpisode.set(p.episodeId, t)
   }
 
-  return days
+  // サービスごとに、各エピソードの最速からの遅延(ミリ秒)を平均する。
+  // 常に最速のサービスは遅延がほぼ 0 になる。
+  const stats = new Map<string, { delaySum: number; count: number; latest: number }>()
+  for (const p of programs) {
+    const t = new Date(p.startedAt).getTime()
+    const s = stats.get(p.service.key) ?? { delaySum: 0, count: 0, latest: -Infinity }
+    if (p.episodeId !== null) {
+      const earliest = earliestByEpisode.get(p.episodeId)
+      if (earliest !== undefined) {
+        s.delaySum += t - earliest
+        s.count += 1
+      }
+    }
+    if (t > s.latest) s.latest = t
+    stats.set(p.service.key, s)
+  }
+
+  // 平均遅延が最小のサービスを最速とする。エピソード情報が無い場合は
+  // 突き合わせできないので、代表(最新)配信が最も早い曜日にフォールバックする。
+  let best: { key: string; avgDelay: number; latest: number } | null = null
+  for (const [key, s] of stats) {
+    const avgDelay = s.count > 0 ? s.delaySum / s.count : Number.POSITIVE_INFINITY
+    if (
+      best === null ||
+      avgDelay < best.avgDelay ||
+      (avgDelay === best.avgDelay && s.latest > best.latest)
+    ) {
+      best = { key, avgDelay, latest: s.latest }
+    }
+  }
+  if (best === null) return null
+
+  // エピソード突き合わせが全くできなかった場合のフォールバック:
+  // 各サービス代表(最新配信)のうち、時刻が最も早い曜日を最速とみなす
+  if (best.avgDelay === Number.POSITIVE_INFINITY) {
+    const latestByService = new Map<string, number>()
+    for (const p of programs) {
+      const t = new Date(p.startedAt).getTime()
+      const cur = latestByService.get(p.service.key)
+      if (cur === undefined || t > cur) latestByService.set(p.service.key, t)
+    }
+    let fbWeekday: number | null = null
+    let fbMinutes = Number.POSITIVE_INFINITY
+    for (const t of latestByService.values()) {
+      const { weekday, minutes } = jstInfo(new Date(t).toISOString())
+      if (minutes < fbMinutes) {
+        fbMinutes = minutes
+        fbWeekday = weekday
+      }
+    }
+    return fbWeekday
+  }
+
+  const { weekday } = jstInfo(new Date(best.latest).toISOString())
+  return weekday
 }

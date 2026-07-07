@@ -3,10 +3,17 @@ export interface Channel {
   name: string
 }
 
+export interface Episode {
+  annictId: number
+}
+
 export interface Program {
   startedAt: string
   rebroadcast: boolean
   channel: Channel
+  // 同じエピソードは配信サービスをまたいで同一の annictId を共有する。
+  // これを手がかりに各サービスの配信の早い/遅いを突き合わせる。null の場合あり。
+  episode: Episode | null
 }
 
 export interface Work {
