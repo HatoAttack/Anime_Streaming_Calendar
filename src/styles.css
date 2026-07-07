@@ -554,6 +554,17 @@ button.secondary {
   flex-wrap: nowrap;
 }
 
+.favicon-link {
+  display: inline-flex;
+  border-radius: 3px;
+  line-height: 0;
+}
+
+.favicon-link:hover {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .favicons img {
   display: block;
   border-radius: 3px;
