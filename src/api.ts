@@ -64,8 +64,18 @@ query SeasonWorks($seasons: [String!], $after: String) {
             annictId
             name
           }
-          episode {
+        }
+      }
+      # 最速配信の曜日を求めるための最古の配信(=第1話の初配信)。
+      # Program.episode は Annict 上ほぼ null なのでエピソード単位の突き合わせは使えず、
+      # 「一番早く配信した曜日=最速」という日付非依存のアンカーに用いる。
+      firstAired: programs(orderBy: { field: STARTED_AT, direction: ASC }, first: 20) {
+        nodes {
+          startedAt
+          rebroadcast
+          channel {
             annictId
+            name
           }
         }
       }
@@ -111,12 +121,18 @@ export async function fetchSeasonWorks(token: string, seasonSlug: string): Promi
     }
 
     const json: SearchWorksResponse = await res.json()
-    if (json.errors?.length) {
-      throw new Error(`Annict API エラー: ${json.errors[0].message}`)
-    }
     const search = json.data?.searchWorks
+    // データが取れていれば、フィールド単位のエラー(例: 非 null 制約違反)が混じっていても
+    // 使える分で続行する。データが全く無いときだけ失敗扱いにする。
     if (!search) {
-      throw new Error('Annict API から予期しない応答が返りました。')
+      throw new Error(
+        json.errors?.length
+          ? `Annict API エラー: ${json.errors[0].message}`
+          : 'Annict API から予期しない応答が返りました。',
+      )
+    }
+    if (json.errors?.length) {
+      console.warn('Annict API から一部フィールドのエラーが返りました:', json.errors)
     }
 
     for (const work of search.nodes) {
