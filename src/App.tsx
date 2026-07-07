@@ -9,7 +9,7 @@ import {
   type Season,
 } from './api'
 import { buildWeek, type CalendarEntry, type DayColumn } from './calendar'
-import { faviconUrl, SERVICES } from './services'
+import { faviconUrl, SERVICES, serviceSearchUrl } from './services'
 import type { Work } from './types'
 
 const TOKEN_STORAGE_KEY = 'annict_token'
@@ -223,15 +223,22 @@ function EntryCard({
         <span className="time">{entry.time}</span>
         <span className="favicons">
           {entry.services.slice(0, MAX_FAVICONS).map((service) => (
-            <img
+            <a
               key={service.key}
-              src={faviconUrl(service)}
-              alt={service.label}
-              title={service.label}
-              width={16}
-              height={16}
-              loading="lazy"
-            />
+              className="favicon-link"
+              href={serviceSearchUrl(service, entry.title)}
+              target="_blank"
+              rel="noreferrer"
+              title={`${service.label} で「${entry.title}」を検索`}
+            >
+              <img
+                src={faviconUrl(service)}
+                alt={service.label}
+                width={16}
+                height={16}
+                loading="lazy"
+              />
+            </a>
           ))}
           {entry.services.length > MAX_FAVICONS && (
             <span
