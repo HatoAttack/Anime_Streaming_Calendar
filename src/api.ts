@@ -64,6 +64,9 @@ query SeasonWorks($seasons: [String!], $after: String) {
             annictId
             name
           }
+          episode {
+            annictId
+          }
         }
       }
     }
