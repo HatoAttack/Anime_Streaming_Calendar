@@ -39,15 +39,21 @@ function jstInfo(iso: string): { weekday: number; minutes: number; time: string 
 // 昨日の曜日を先頭にした 7 日分のカレンダーを組み立てる。
 // 各作品×配信サービスについて「現在時刻に最も近い配信予定」の曜日・時刻を採用するので、
 // 取得済みの予定が週の前後にずれていても毎週の配信曜日として正しく表示される。
+// hideUnaired が true のとき、各列の実際の日付時点でまだ初回配信が来ていない
+// サービスはその列に載せない(例: 7/19 初配信の作品は日曜列が 7/19 になる週から表示)。
+// 来クールのプレビューでは全作品が未配信になるため、今クール表示のときだけ有効にする。
 export function buildWeek(
   works: Work[],
   enabledServiceKeys: ReadonlySet<string> | null = null,
   now: Date = new Date(),
+  hideUnaired = true,
 ): DayColumn[] {
   const jstNow = new Date(now.getTime() + JST_OFFSET_MS)
   const todayUtcMidnight = Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), jstNow.getUTCDate())
 
   const days: DayColumn[] = []
+  // 曜日 → その列の実際の日付の終端(JST、シフト座標系)。未配信判定に使う
+  const columnEndByWeekday = new Map<number, number>()
   for (let offset = -1; offset <= 5; offset++) {
     const d = new Date(todayUtcMidnight + offset * DAY_MS)
     days.push({
@@ -57,6 +63,7 @@ export function buildWeek(
       isToday: offset === 0,
       entries: [],
     })
+    columnEndByWeekday.set(d.getUTCDay(), todayUtcMidnight + (offset + 1) * DAY_MS)
   }
 
   for (const work of works) {
@@ -65,12 +72,19 @@ export function buildWeek(
     const programs = collectServicePrograms(work.programs, enabledServiceKeys)
     if (programs.length === 0) continue
 
+    const firstAired = collectServicePrograms(work.firstAired, enabledServiceKeys)
+
     // 最速配信の曜日 = 第1話をいちばん早く配信した(=最古の配信の)曜日。
     // firstAired(最古の配信)から求め、無ければ表示用の配信の中の最古で代用する。
-    const fastestWeekday = findFastestWeekday(
-      collectServicePrograms(work.firstAired, enabledServiceKeys),
-      programs,
-    )
+    const fastestWeekday = findFastestWeekday(firstAired, programs)
+
+    // サービスごとの初回配信時刻(シフト座標系)。列の日付時点で未配信かの判定に使う
+    const firstStartByService = new Map<string, number>()
+    for (const p of [...firstAired, ...programs]) {
+      const t = new Date(p.startedAt).getTime() + JST_OFFSET_MS
+      const cur = firstStartByService.get(p.service.key)
+      if (cur === undefined || t < cur) firstStartByService.set(p.service.key, t)
+    }
 
     // サービスごとの代表的な配信枠(曜日・時刻)を求める。週次で安定しているので
     // 最新の配信を代表に採る。同じ曜日に配信されるサービスは 1 エントリにまとめる。
@@ -85,6 +99,12 @@ export function buildWeek(
     const byWeekday = new Map<number, { minutes: number; time: string; services: StreamingService[] }>()
     for (const { service, startedAt } of repByService.values()) {
       const { weekday, minutes, time } = jstInfo(startedAt)
+      // この曜日の列の実際の日付が終わるまでに初回配信が来ていなければ、まだ載せない
+      if (hideUnaired) {
+        const firstStart = firstStartByService.get(service.key)
+        const columnEnd = columnEndByWeekday.get(weekday)
+        if (firstStart !== undefined && columnEnd !== undefined && firstStart >= columnEnd) continue
+      }
       const entry = byWeekday.get(weekday)
       if (!entry) {
         byWeekday.set(weekday, { minutes, time, services: [service] })

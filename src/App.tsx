@@ -573,9 +573,16 @@ export default function App() {
   const days = useMemo(
     () =>
       works
-        ? buildWeek(works.filter((w) => !hiddenIds.includes(w.annictId)), new Set(enabledKeys))
+        ? buildWeek(
+            works.filter((w) => !hiddenIds.includes(w.annictId)),
+            new Set(enabledKeys),
+            new Date(),
+            // 未配信フィルタは今クール表示のときだけ。来クールのプレビューでは
+            // 全作品が未配信なので、適用するとカレンダーが空になってしまう
+            isCurrentSeason,
+          )
         : null,
-    [works, hiddenIds, enabledKeys],
+    [works, hiddenIds, enabledKeys, isCurrentSeason],
   )
   const shownCount = useMemo(
     () => (days ? new Set(days.flatMap((d) => d.entries.map((e) => e.workId))).size : 0),
