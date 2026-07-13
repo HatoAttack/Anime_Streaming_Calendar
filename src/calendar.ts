@@ -69,10 +69,14 @@ export function buildWeek(
   for (const work of works) {
     if (work.media !== 'TV' && work.media !== 'WEB') continue
 
-    const programs = collectServicePrograms(work.programs, enabledServiceKeys)
-    if (programs.length === 0) continue
-
+    // programs(新しい順の窓)と firstAired(古い順の窓)の両方から配信予定を集める。
+    // 全国ネットの作品では片方の窓がテレビ局の予定だけで埋まり、配信サービスの予定を
+    // 取りこぼすことがある(例: クール終盤のテレビ局予定で新しい側が埋まる)ため、
+    // どちらか一方にでも配信予定があれば表示できるようマージして扱う。
+    const latestPrograms = collectServicePrograms(work.programs, enabledServiceKeys)
     const firstAired = collectServicePrograms(work.firstAired, enabledServiceKeys)
+    const programs = [...latestPrograms, ...firstAired]
+    if (programs.length === 0) continue
 
     // 最速配信の曜日 = 第1話をいちばん早く配信した(=最古の配信の)曜日。
     // firstAired(最古の配信)から求め、無ければ表示用の配信の中の最古で代用する。
@@ -80,7 +84,7 @@ export function buildWeek(
 
     // サービスごとの初回配信時刻(シフト座標系)。列の日付時点で未配信かの判定に使う
     const firstStartByService = new Map<string, number>()
-    for (const p of [...firstAired, ...programs]) {
+    for (const p of programs) {
       const t = new Date(p.startedAt).getTime() + JST_OFFSET_MS
       const cur = firstStartByService.get(p.service.key)
       if (cur === undefined || t < cur) firstStartByService.set(p.service.key, t)

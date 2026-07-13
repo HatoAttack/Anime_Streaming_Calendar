@@ -56,7 +56,10 @@ query SeasonWorks($seasons: [String!], $after: String) {
       title
       media
       officialSiteUrl
-      programs(orderBy: { field: STARTED_AT, direction: DESC }, first: 64) {
+      # 全国ネットの作品はテレビ局だけで毎週 30 件近い予定が登録され、クール全体では
+      # 数百件になる。窓が狭いと配信サービスの予定がテレビ局の予定に押し出されて
+      # 1 件も取れなくなるため、新旧両端から広めに取る(超過分は Annict 側で切り詰め)。
+      programs(orderBy: { field: STARTED_AT, direction: DESC }, first: 100) {
         nodes {
           startedAt
           rebroadcast
@@ -69,7 +72,7 @@ query SeasonWorks($seasons: [String!], $after: String) {
       # 最速配信の曜日を求めるための最古の配信(=第1話の初配信)。
       # Program.episode は Annict 上ほぼ null なのでエピソード単位の突き合わせは使えず、
       # 「一番早く配信した曜日=最速」という日付非依存のアンカーに用いる。
-      firstAired: programs(orderBy: { field: STARTED_AT, direction: ASC }, first: 20) {
+      firstAired: programs(orderBy: { field: STARTED_AT, direction: ASC }, first: 100) {
         nodes {
           startedAt
           rebroadcast
