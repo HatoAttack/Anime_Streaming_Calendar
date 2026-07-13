@@ -70,9 +70,10 @@ export function buildWeek(
     if (work.media !== 'TV' && work.media !== 'WEB') continue
 
     // programs(新しい順の窓)と firstAired(古い順の窓)の両方から配信予定を集める。
-    // 全国ネットの作品では片方の窓がテレビ局の予定だけで埋まり、配信サービスの予定を
-    // 取りこぼすことがある(例: クール終盤のテレビ局予定で新しい側が埋まる)ため、
-    // どちらか一方にでも配信予定があれば表示できるようマージして扱う。
+    // 全国ネットの作品では firstAired の窓が初回放送日のテレビ局だけで埋まり、直後の
+    // 配信サービスの初回配信を取りこぼすことがある。取りこぼすと下の firstStartByService が
+    // 実際の初回配信日を拾えず、hideUnaired が全サービスを「まだ放送前」と誤判定して作品ごと
+    // 消してしまう。どちらの窓にでも配信予定があれば拾えるようマージして扱う。
     const latestPrograms = collectServicePrograms(work.programs, enabledServiceKeys)
     const firstAired = collectServicePrograms(work.firstAired, enabledServiceKeys)
     const programs = [...latestPrograms, ...firstAired]
