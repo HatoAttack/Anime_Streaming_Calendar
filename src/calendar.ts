@@ -74,9 +74,10 @@ export function buildWeek(
 
     const firstAired = collectServicePrograms(work.firstAired, enabledServiceKeys)
 
-    // 最速配信の曜日 = 第1話をいちばん早く配信した(=最古の配信の)曜日。
-    // firstAired(最古の配信)から求め、無ければ表示用の配信の中の最古で代用する。
-    const fastestWeekday = findFastestWeekday(firstAired, programs)
+    // 第1話をいちばん早く配信したサービス(=最速配信のサービス)。
+    // 曜日ではなくサービスを覚えておき、表示する枠の中でそのサービスが出る曜日を最速とする。
+    // 長期作品では firstAired(初回)と programs(直近の予定)で曜日がずれることがあるため。
+    const fastestServiceKeys = findFastestServiceKeys(firstAired, programs)
 
     // サービスごとの初回配信時刻(シフト座標系)。列の日付時点で未配信かの判定に使う
     const firstStartByService = new Map<string, number>()
@@ -116,6 +117,11 @@ export function buildWeek(
         }
       }
     }
+
+    // 表示する枠のうち、最速サービスが含まれる曜日が最速配信。
+    // 最速サービスが表示枠に無い(未配信フィルタで落ちた等)場合は、残った枠の中で
+    // いちばん早い時刻の曜日を最速とみなし、すべてが遅れ配信になるのを避ける。
+    const fastestWeekday = pickFastestWeekday(byWeekday, fastestServiceKeys)
 
     for (const [weekday, info] of byWeekday) {
       const column = days.find((d) => d.weekday === weekday)
@@ -161,19 +167,45 @@ function collectServicePrograms(
   return result
 }
 
-// 最速配信の曜日を求める。第1話をいちばん早く配信した(=最古の配信の)曜日が最速。
-// これはチェックする曜日に依存しない固定のアンカーになる。
+// 同時配信とみなす許容幅。第1話の最速から この時間内に配信したサービスは
+// まとめて「最速サービス」として扱う(数分〜数十分の差で最速枠が割れないように)
+const SIMULCAST_TOLERANCE_MS = 6 * 60 * 60 * 1000
+
+// 第1話をいちばん早く配信したサービス群を求める。
+// チェックする曜日に依存しない固定のアンカーになる。
 // firstAired が空のときは表示用配信 fallbackPrograms の最古で代用する。
-function findFastestWeekday(
+function findFastestServiceKeys(
   firstAired: ServiceProgram[],
   fallbackPrograms: ServiceProgram[],
-): number | null {
+): Set<string> {
   const source = firstAired.length > 0 ? firstAired : fallbackPrograms
   let earliest: number | null = null
   for (const p of source) {
     const t = new Date(p.startedAt).getTime()
     if (earliest === null || t < earliest) earliest = t
   }
-  if (earliest === null) return null
-  return jstInfo(new Date(earliest).toISOString()).weekday
+  const keys = new Set<string>()
+  if (earliest === null) return keys
+  for (const p of source) {
+    if (new Date(p.startedAt).getTime() <= earliest + SIMULCAST_TOLERANCE_MS) {
+      keys.add(p.service.key)
+    }
+  }
+  return keys
+}
+
+// 表示する曜日別の枠から最速配信の曜日を選ぶ。
+// 最速サービスを含む曜日を優先し、無ければ最も早い時刻の曜日にフォールバックする。
+function pickFastestWeekday(
+  byWeekday: Map<number, { minutes: number; services: StreamingService[] }>,
+  fastestServiceKeys: ReadonlySet<string>,
+): number | null {
+  let fallback: { weekday: number; minutes: number } | null = null
+  for (const [weekday, info] of byWeekday) {
+    if (info.services.some((s) => fastestServiceKeys.has(s.key))) return weekday
+    if (fallback === null || info.minutes < fallback.minutes) {
+      fallback = { weekday, minutes: info.minutes }
+    }
+  }
+  return fallback?.weekday ?? null
 }
