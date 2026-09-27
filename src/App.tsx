@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   addSeasons,
-  fetchSeasonWorks,
+  fetchWorksForSeasons,
   getCurrentSeason,
   sameSeason,
   seasonLabel,
-  seasonSlug,
+  seasonsForWeek,
+  seasonsLabel,
   type Season,
 } from './api'
 import { buildWeek, type CalendarEntry, type DayColumn } from './calendar'
@@ -177,12 +178,14 @@ function EntryCard({
   onHide: (workId: number) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  // クール別の淡い背景色(春・夏・秋・冬)
+  const seasonClass = entry.season ? ` season-${entry.season}` : ''
 
   // 遅れ配信は畳んだコンパクト表示が既定。ただしお気に入りは見逃さないよう常に展開する。
   // クリックで展開すると favicon 付きの通常カードになる
   if (entry.isLate && !expanded && !isFavorite) {
     return (
-      <article className="entry late collapsed">
+      <article className={`entry late collapsed${seasonClass}`}>
         <button
           className="expand-row"
           title="展開して配信サービスを表示"
@@ -203,7 +206,9 @@ function EntryCard({
   }
 
   return (
-    <article className={`entry${entry.isLate ? ' late' : ''}${isFavorite ? ' favorite' : ''}`}>
+    <article
+      className={`entry${entry.isLate ? ' late' : ''}${isFavorite ? ' favorite' : ''}${seasonClass}`}
+    >
       <div className="entry-meta">
         <FavButton
           isFavorite={isFavorite}
@@ -221,6 +226,11 @@ function EntryCard({
           </button>
         )}
         <span className="time">{entry.time}</span>
+        {entry.isUpcoming && entry.premiereLabel && (
+          <span className="premiere-badge" title={`第1話の最速配信: ${entry.premiereLabel}`}>
+            初回 {entry.premiereLabel}
+          </span>
+        )}
         <span className="favicons">
           {entry.services.slice(0, MAX_FAVICONS).map((service) => (
             <a
@@ -258,7 +268,13 @@ function EntryCard({
           ×
         </button>
       </div>
-      <a className="title" href={entry.url} target="_blank" rel="noreferrer" title={entry.title}>
+      <a
+        className="title"
+        href={entry.url}
+        target="_blank"
+        rel="noreferrer"
+        title={entry.premiereLabel ? `${entry.title}\n第1話の最速配信: ${entry.premiereLabel}` : entry.title}
+      >
         {entry.title}
       </a>
     </article>
@@ -281,14 +297,12 @@ function orderEntries(
 function Calendar({
   days,
   hideLate,
-  showDates,
   favorites,
   onToggleFavorite,
   onHide,
 }: {
   days: DayColumn[]
   hideLate: boolean
-  showDates: boolean
   favorites: ReadonlySet<number>
   onToggleFavorite: (workId: number) => void
   onHide: (workId: number) => void
@@ -298,14 +312,11 @@ function Calendar({
       {days.map((day) => {
         const entries = orderEntries(day.entries, hideLate, favorites)
         return (
-          <section
-            key={day.dateLabel}
-            className={`day-column${showDates && day.isToday ? ' today' : ''}`}
-          >
+          <section key={day.dateLabel} className={`day-column${day.isToday ? ' today' : ''}`}>
             <header className={`day-header weekday-${day.weekday}`}>
               <span className="weekday">{day.weekdayLabel}</span>
-              {showDates && <span className="date">{day.dateLabel}</span>}
-              {showDates && day.isToday && <span className="today-badge">今日</span>}
+              <span className="date">{day.dateLabel}</span>
+              {day.isToday && <span className="today-badge">今日</span>}
             </header>
             <div className="day-entries">
               {entries.length === 0 && <p className="empty">配信なし</p>}
@@ -329,14 +340,12 @@ function Calendar({
 function MobileCalendar({
   days,
   hideLate,
-  showDates,
   favorites,
   onToggleFavorite,
   onHide,
 }: {
   days: DayColumn[]
   hideLate: boolean
-  showDates: boolean
   favorites: ReadonlySet<number>
   onToggleFavorite: (workId: number) => void
   onHide: (workId: number) => void
@@ -373,11 +382,11 @@ function MobileCalendar({
         {days.map((d, i) => (
           <button
             key={d.dateLabel}
-            className={`day-tab weekday-${d.weekday}${i === dayIndex ? ' active' : ''}${showDates && d.isToday ? ' is-today' : ''}`}
+            className={`day-tab weekday-${d.weekday}${i === dayIndex ? ' active' : ''}${d.isToday ? ' is-today' : ''}`}
             onClick={() => setDayIndex(i)}
           >
             <span className="weekday">{d.weekdayLabel}</span>
-            {showDates && <span className="date">{d.dateLabel}</span>}
+            <span className="date">{d.dateLabel}</span>
           </button>
         ))}
       </div>
@@ -388,8 +397,8 @@ function MobileCalendar({
       >
         <header className={`day-header weekday-${day.weekday}`}>
           <span className="weekday">{day.weekdayLabel}曜日</span>
-          {showDates && <span className="date">{day.dateLabel}</span>}
-          {showDates && day.isToday && <span className="today-badge">今日</span>}
+          <span className="date">{day.dateLabel}</span>
+          {day.isToday && <span className="today-badge">今日</span>}
         </header>
         <div className="day-entries">
           {entries.length === 0 && <p className="empty">配信なし</p>}
@@ -497,18 +506,26 @@ export default function App() {
   const [season, setSeason] = useState<Season>(currentSeason)
   const isCurrentSeason = sameSeason(season, currentSeason)
 
+  // 今クール表示のときは、カレンダーの列が入るクールをすべて読み込む。
+  // クールの変わり目の週は夏と秋の 2 つになり、列の日付どおりに混在表示できる。
+  // ◀ ▶ で明示的にクールを選んでいるときは、そのクールだけを見せる。
+  const seasonsToLoad = useMemo(
+    () => (isCurrentSeason ? seasonsForWeek(new Date()) : [season]),
+    [isCurrentSeason, season],
+  )
+
   const load = useCallback(async (accessToken: string) => {
     setLoading(true)
     setError(null)
     try {
-      setWorks(await fetchSeasonWorks(accessToken, seasonSlug(season)))
+      setWorks(await fetchWorksForSeasons(accessToken, seasonsToLoad))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setWorks(null)
     } finally {
       setLoading(false)
     }
-  }, [season])
+  }, [seasonsToLoad])
 
   useEffect(() => {
     if (token) void load(token)
@@ -577,8 +594,8 @@ export default function App() {
             works.filter((w) => !hiddenIds.includes(w.annictId)),
             new Set(enabledKeys),
             new Date(),
-            // 未配信フィルタは今クール表示のときだけ。来クールのプレビューでは
-            // 全作品が未配信なので、適用するとカレンダーが空になってしまう
+            // 放送期間フィルタは今クール表示のときだけ。他クールのプレビューでは
+            // 全作品が放送期間外なので、適用するとカレンダーが空になってしまう
             isCurrentSeason,
           )
         : null,
@@ -614,7 +631,14 @@ export default function App() {
             >
               ◀
             </button>
-            <span className="season">{seasonLabel(season)}</span>
+            {/* ラベルは ◀ ▶ の基準になるクールだけを出す。変わり目の週に読み込む
+                隣のクールはカードの色分けで分かるので、ここには並べない */}
+            <span
+              className="season"
+              title={seasonsToLoad.length > 1 ? `${seasonsLabel(seasonsToLoad)}を表示中` : undefined}
+            >
+              {seasonLabel(season)}
+            </span>
             <button
               className="secondary season-arrow"
               title="次のクール"
@@ -696,7 +720,6 @@ export default function App() {
           <MobileCalendar
             days={days}
             hideLate={hideLate}
-            showDates={isCurrentSeason}
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
             onHide={hideWork}
@@ -705,7 +728,6 @@ export default function App() {
           <Calendar
             days={days}
             hideLate={hideLate}
-            showDates={isCurrentSeason}
             favorites={favorites}
             onToggleFavorite={toggleFavorite}
             onHide={hideWork}

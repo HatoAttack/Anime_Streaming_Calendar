@@ -15,6 +15,11 @@
   --fav-bg-hover: rgba(255, 210, 77, 0.14);
   --sunday: #ff7a7a;
   --saturday: #7ab5ff;
+  /* クール別のカード背景。文字が読めるよう淡くする */
+  --tint-winter: rgba(120, 180, 255, 0.1);
+  --tint-spring: rgba(255, 150, 205, 0.1);
+  --tint-summer: rgba(70, 215, 200, 0.1);
+  --tint-autumn: rgba(255, 160, 75, 0.1);
 }
 
 :root[data-theme='light'] {
@@ -32,6 +37,10 @@
   --fav-bg-hover: rgba(217, 168, 0, 0.18);
   --sunday: #d64545;
   --saturday: #2f6fd0;
+  --tint-winter: rgba(45, 120, 215, 0.12);
+  --tint-spring: rgba(225, 80, 150, 0.1);
+  --tint-summer: rgba(0, 155, 145, 0.12);
+  --tint-autumn: rgba(210, 115, 20, 0.13);
 }
 
 * {
@@ -388,15 +397,38 @@ button.secondary {
   margin: 12px 0;
 }
 
+/* 背景は「お気に入りの金色」「クール別の淡い色」「下地」の 3 層を重ねる。
+   色は CSS 変数で差し替えるので、hover / favorite / クールの指定が
+   セレクタの優先度で打ち消し合わない。 */
 .entry {
-  background: var(--bg);
+  background:
+    linear-gradient(var(--entry-fav-tint, transparent), var(--entry-fav-tint, transparent)),
+    linear-gradient(var(--entry-season-tint, transparent), var(--entry-season-tint, transparent)),
+    var(--entry-base, var(--bg));
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px 8px;
 }
 
 .entry:hover {
-  background: var(--panel-hover);
+  --entry-base: var(--panel-hover);
+}
+
+/* クール別の淡い色分け */
+.entry.season-winter {
+  --entry-season-tint: var(--tint-winter);
+}
+
+.entry.season-spring {
+  --entry-season-tint: var(--tint-spring);
+}
+
+.entry.season-summer {
+  --entry-season-tint: var(--tint-summer);
+}
+
+.entry.season-autumn {
+  --entry-season-tint: var(--tint-autumn);
 }
 
 .entry-meta {
@@ -465,11 +497,11 @@ button.secondary {
 .entry.favorite {
   border-color: var(--fav);
   box-shadow: 0 0 0 1px var(--fav);
-  background: var(--fav-bg);
+  --entry-fav-tint: var(--fav-bg);
 }
 
 .entry.favorite:hover {
-  background: var(--fav-bg-hover);
+  --entry-fav-tint: var(--fav-bg-hover);
 }
 
 /* 遅れ配信(週内 2 回目以降)の折りたたみ表示 */
@@ -568,6 +600,18 @@ button.secondary {
 .favicons img {
   display: block;
   border-radius: 3px;
+}
+
+/* まだ始まっていない作品の初回配信日 */
+.premiere-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--today);
+  border: 1px solid var(--today);
+  border-radius: 999px;
+  padding: 2px 6px;
 }
 
 .more-favicons {
