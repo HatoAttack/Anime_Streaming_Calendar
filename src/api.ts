@@ -1,3 +1,4 @@
+import { weekColumnMonths } from './calendar'
 import type { Work } from './types'
 
 // クールは年と 0-3 のインデックス(0: 冬 / 1: 春 / 2: 夏 / 3: 秋)で表す
@@ -37,6 +38,30 @@ export function addSeasons(season: Season, delta: number): Season {
 
 export function sameSeason(a: Season, b: Season): boolean {
   return a.year === b.year && a.index === b.index
+}
+
+// カレンダーに並ぶ 7 列の日付が属するクール(重複なし)。
+// クールの変わり目の週は夏と秋のように 2 つ返るので、両方を読み込んで混在させる。
+export function seasonsForWeek(now: Date = new Date()): Season[] {
+  const seen = new Set<string>()
+  const seasons: Season[] = []
+  for (const { year, month } of weekColumnMonths(now)) {
+    const season = { year, index: Math.floor((month - 1) / 3) }
+    const key = seasonSlug(season)
+    if (seen.has(key)) continue
+    seen.add(key)
+    seasons.push(season)
+  }
+  return seasons
+}
+
+// 複数クールをまとめた見出し。同じ年なら「2026年夏・秋クール」のように縮める
+export function seasonsLabel(seasons: Season[]): string {
+  if (seasons.length === 1) return seasonLabel(seasons[0])
+  if (seasons.every((s) => s.year === seasons[0].year)) {
+    return `${seasons[0].year}年${seasons.map((s) => SEASON_LABELS[s.index]).join('・')}クール`
+  }
+  return seasons.map(seasonLabel).join(' / ')
 }
 
 const QUERY = `
@@ -150,4 +175,16 @@ export async function fetchSeasonWorks(token: string, seasonSlug: string): Promi
   }
 
   return works
+}
+
+// 複数クールをまとめて取得する(クールの変わり目の週で夏と秋を混在させるため)。
+// 同じ作品が両方のクールに登録されていることがあるので annictId で重複を除く。
+export async function fetchWorksForSeasons(token: string, seasons: Season[]): Promise<Work[]> {
+  const byId = new Map<number, Work>()
+  for (const season of seasons) {
+    for (const work of await fetchSeasonWorks(token, seasonSlug(season))) {
+      if (!byId.has(work.annictId)) byId.set(work.annictId, work)
+    }
+  }
+  return [...byId.values()]
 }
