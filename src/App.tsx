@@ -177,12 +177,14 @@ function EntryCard({
   onHide: (workId: number) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  // クール別の淡い背景色(春・夏・秋・冬)
+  const seasonClass = entry.season ? ` season-${entry.season}` : ''
 
   // 遅れ配信は畳んだコンパクト表示が既定。ただしお気に入りは見逃さないよう常に展開する。
   // クリックで展開すると favicon 付きの通常カードになる
   if (entry.isLate && !expanded && !isFavorite) {
     return (
-      <article className="entry late collapsed">
+      <article className={`entry late collapsed${seasonClass}`}>
         <button
           className="expand-row"
           title="展開して配信サービスを表示"
@@ -203,7 +205,9 @@ function EntryCard({
   }
 
   return (
-    <article className={`entry${entry.isLate ? ' late' : ''}${isFavorite ? ' favorite' : ''}`}>
+    <article
+      className={`entry${entry.isLate ? ' late' : ''}${isFavorite ? ' favorite' : ''}${seasonClass}`}
+    >
       <div className="entry-meta">
         <FavButton
           isFavorite={isFavorite}

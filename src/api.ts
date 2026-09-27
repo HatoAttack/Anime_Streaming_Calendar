@@ -81,6 +81,8 @@ query SeasonWorks($seasons: [String!], $after: String) {
       title
       media
       officialSiteUrl
+      # カードをクール別に淡く色分けするのに使う
+      seasonName
       # 全国ネットの作品はテレビ局のチャンネルだけで毎週数十件の予定が登録され、
       # クール全体では数百件になる。表示用の配信枠を取りこぼさないよう広めに取る
       # (超過分は Annict 側で切り詰められる)。

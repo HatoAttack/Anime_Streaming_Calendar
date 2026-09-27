@@ -1,4 +1,4 @@
-import type { Program, Work } from './types'
+import type { Program, SeasonName, Work } from './types'
 import { matchService, type StreamingService } from './services'
 
 export interface CalendarEntry {
@@ -14,6 +14,8 @@ export interface CalendarEntry {
   premiereLabel: string | null
   // その初回配信がまだ先(=これから始まる作品)かどうか
   isUpcoming: boolean
+  // 作品が属するクール。カードの淡い色分けに使う
+  season: 'winter' | 'spring' | 'summer' | 'autumn' | null
 }
 
 export interface DayColumn {
@@ -131,6 +133,7 @@ export function buildWeek(
       ? `${premiereDate.getUTCMonth() + 1}/${premiereDate.getUTCDate()}`
       : null
     const isUpcoming = premiereMs !== null && premiereMs > nowShifted
+    const season = workSeason(work.seasonName, premiereDate)
 
     // サービスごとの代表的な配信枠(曜日・時刻)を求める。週次で安定しているので
     // 最新の配信を代表に採る。同じ曜日に配信されるサービスは 1 エントリにまとめる。
@@ -187,6 +190,7 @@ export function buildWeek(
         isLate: fastestWeekday !== null && weekday !== fastestWeekday,
         premiereLabel,
         isUpcoming,
+        season,
       })
     }
   }
@@ -201,6 +205,25 @@ export function buildWeek(
 interface ServiceProgram {
   service: StreamingService
   startedAt: string
+}
+
+const SEASON_BY_NAME: Record<SeasonName, CalendarEntry['season']> = {
+  WINTER: 'winter',
+  SPRING: 'spring',
+  SUMMER: 'summer',
+  AUTUMN: 'autumn',
+}
+
+// 作品のクール。Annict の seasonName を使い、未登録なら初回配信月から補う
+// (1-3月: 冬 / 4-6月: 春 / 7-9月: 夏 / 10-12月: 秋)
+function workSeason(
+  seasonName: SeasonName | null,
+  premiereDate: Date | null,
+): CalendarEntry['season'] {
+  if (seasonName && SEASON_BY_NAME[seasonName]) return SEASON_BY_NAME[seasonName]
+  if (!premiereDate) return null
+  const order: CalendarEntry['season'][] = ['winter', 'spring', 'summer', 'autumn']
+  return order[Math.floor(premiereDate.getUTCMonth() / 3)]
 }
 
 // 配信ノード列から、非再放送・対象サービスの配信予定を集める
