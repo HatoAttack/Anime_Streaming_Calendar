@@ -1,5 +1,5 @@
 import { weekColumnMonths } from './calendar'
-import type { Work } from './types'
+import type { ProgramConnection, Work } from './types'
 
 // クールは年と 0-3 のインデックス(0: 冬 / 1: 春 / 2: 夏 / 3: 秋)で表す
 export interface Season {
@@ -83,27 +83,9 @@ query SeasonWorks($seasons: [String!], $after: String) {
       officialSiteUrl
       # カードをクール別に淡く色分けするのに使う
       seasonName
-      # 全国ネットの作品はテレビ局のチャンネルだけで毎週数十件の予定が登録され、
-      # クール全体では数百件になる。表示用の配信枠を取りこぼさないよう広めに取る
-      # (超過分は Annict 側で切り詰められる)。
+      # 100件を超える作品は pageInfo から続きのページを取得する。
       programs(orderBy: { field: STARTED_AT, direction: DESC }, first: 100) {
-        nodes {
-          startedAt
-          rebroadcast
-          channel {
-            annictId
-            name
-          }
-        }
-      }
-      # 最速配信の曜日と、サービスごとの初回配信日(hideUnaired の未放送判定)を求める
-      # ための最古の配信。全国ネットの作品は初回放送日に同時刻のテレビ局が数十件並ぶため、
-      # 窓が狭いとそれだけで埋まり、直後に来る配信サービスの初回配信を取りこぼす。
-      # 取りこぼすと初回配信日が実際より後ろにずれ、その作品が「まだ放送前」と誤判定されて
-      # まるごと非表示になる。テレビ局の山を越えて配信予定に届くよう広めに取る。
-      # Program.episode は Annict 上ほぼ null なのでエピソード単位の突き合わせは使えず、
-      # 「一番早く配信した曜日=最速」という日付非依存のアンカーに用いる。
-      firstAired: programs(orderBy: { field: STARTED_AT, direction: ASC }, first: 100) {
+        pageInfo { hasNextPage endCursor }
         nodes {
           startedAt
           rebroadcast
@@ -128,51 +110,116 @@ interface SearchWorksResponse {
   errors?: { message: string }[]
 }
 
+interface MoreProgramsResponse {
+  data?: Record<string, { nodes: ({ programs: ProgramConnection | null } | null)[] }>
+  errors?: { message: string }[]
+}
+
 // 開発時は Vite のプロキシ経由(CORS 回避と挙動確認のため)、
 // 本番ビルド(GitHub Pages などの静的ホスティング)では Annict API を直接呼ぶ
 const GRAPHQL_ENDPOINT = import.meta.env.DEV ? '/graphql' : 'https://api.annict.com/graphql'
 
-// 今クールの作品と放送・配信予定を全件取得する(50件ずつページング)
-export async function fetchSeasonWorks(token: string, seasonSlug: string): Promise<Work[]> {
-  const works: Work[] = []
-  let after: string | null = null
-
-  for (let page = 0; page < 10; page++) {
+async function requestGraphql<T extends { errors?: { message: string }[] }>(
+  token: string,
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<T> {
+  for (let attempt = 0; attempt < 5; attempt++) {
     const res = await fetch(GRAPHQL_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ query: QUERY, variables: { seasons: [seasonSlug], after } }),
+      body: JSON.stringify({ query, variables }),
     })
-
     if (res.status === 401) {
       throw new Error('認証に失敗しました。アクセストークンを確認してください。')
     }
-    if (!res.ok) {
-      throw new Error(`Annict API エラー (HTTP ${res.status})`)
+    if (res.status === 429 && attempt < 4) {
+      const retryAfter = Number(res.headers.get('Retry-After'))
+      const delay = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : Math.min(1000 * 2 ** attempt, 8000)
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      continue
     }
+    if (!res.ok) throw new Error(`Annict API エラー (HTTP ${res.status})`)
+    const json = await res.json() as T
+    // GraphQL は HTTP 200 でも一部作品・配信予定が欠けることがある。
+    if (json.errors?.length) throw new Error(`Annict API エラー: ${json.errors[0].message}`)
+    return json
+  }
+  throw new Error('Annict API のリクエストを再試行できませんでした。')
+}
 
-    const json: SearchWorksResponse = await res.json()
-    const search = json.data?.searchWorks
-    // データが取れていれば、フィールド単位のエラー(例: 非 null 制約違反)が混じっていても
-    // 使える分で続行する。データが全く無いときだけ失敗扱いにする。
+// 複数作品の続きのページを GraphQL の別名で 1 リクエストにまとめる。
+async function completePrograms(token: string, works: Work[]): Promise<void> {
+  const pending = works.filter((work) =>
+    (work.media === 'TV' || work.media === 'WEB') && work.programs?.pageInfo.hasNextPage,
+  )
+  const seenCursors = new Map<number, Set<string>>()
+  while (pending.length > 0) {
+    const batch = pending.splice(0, 5)
+    const variables: Record<string, unknown> = {}
+    const declarations: string[] = []
+    const selections: string[] = []
+    for (const [index, work] of batch.entries()) {
+      const after = work.programs?.pageInfo.endCursor
+      const seen = seenCursors.get(work.annictId) ?? new Set<string>()
+      if (!after || seen.has(after)) {
+        throw new Error(`Annict API のページングに失敗しました (${work.title})`)
+      }
+      seen.add(after)
+      seenCursors.set(work.annictId, seen)
+      variables[`id${index}`] = work.annictId
+      variables[`after${index}`] = after
+      declarations.push(`$id${index}: Int!, $after${index}: String!`)
+      selections.push(`w${index}: searchWorks(annictIds: [$id${index}], first: 1) {
+        nodes { programs(orderBy: { field: STARTED_AT, direction: DESC }, first: 100, after: $after${index}) {
+          pageInfo { hasNextPage endCursor }
+          nodes { startedAt rebroadcast channel { annictId name } }
+        } }
+      }`)
+    }
+    const query = `query MorePrograms(${declarations.join(', ')}) { ${selections.join('\n')} }`
+    const json = await requestGraphql<MoreProgramsResponse>(token, query, variables)
+    for (const [index, work] of batch.entries()) {
+      const next = json.data?.[`w${index}`]?.nodes[0]?.programs
+      if (!next || !work.programs) {
+        throw new Error(`Annict API の配信予定を取得できませんでした (${work.title})`)
+      }
+      work.programs.nodes.push(...next.nodes)
+      work.programs.pageInfo = next.pageInfo
+      if (next.pageInfo.hasNextPage) pending.push(work)
+    }
+  }
+}
+
+// 今クールの作品と放送・配信予定を全件取得する(50件ずつページング)
+export async function fetchSeasonWorks(token: string, seasonSlug: string): Promise<Work[]> {
+  const works: Work[] = []
+  let after: string | null = null
+
+  const seenCursors = new Set<string>()
+  while (true) {
+    const json: SearchWorksResponse = await requestGraphql<SearchWorksResponse>(token, QUERY, { seasons: [seasonSlug], after })
+    const search: NonNullable<SearchWorksResponse['data']>['searchWorks'] | undefined = json.data?.searchWorks
     if (!search) {
-      throw new Error(
-        json.errors?.length
-          ? `Annict API エラー: ${json.errors[0].message}`
-          : 'Annict API から予期しない応答が返りました。',
-      )
-    }
-    if (json.errors?.length) {
-      console.warn('Annict API から一部フィールドのエラーが返りました:', json.errors)
+      throw new Error('Annict API から予期しない応答が返りました。')
     }
 
+    const pageWorks: Work[] = []
     for (const work of search.nodes) {
-      if (work) works.push(work)
+      if (work) pageWorks.push(work)
     }
-    if (!search.pageInfo.hasNextPage || !search.pageInfo.endCursor) break
+    await completePrograms(token, pageWorks)
+    works.push(...pageWorks)
+    if (!search.pageInfo.hasNextPage) break
+    if (!search.pageInfo.endCursor || seenCursors.has(search.pageInfo.endCursor)) {
+      throw new Error('Annict API の作品一覧のページングに失敗しました。')
+    }
+    seenCursors.add(search.pageInfo.endCursor)
     after = search.pageInfo.endCursor
   }
 
