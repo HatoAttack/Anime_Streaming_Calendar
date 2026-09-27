@@ -21,6 +21,8 @@ const HIDE_LATE_STORAGE_KEY = 'hide_late_entries'
 const THEME_STORAGE_KEY = 'theme_mode'
 
 type ThemeMode = 'system' | 'light' | 'dark'
+const DAY_MS = 24 * 60 * 60 * 1000
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000
 
 const THEME_ORDER: ThemeMode[] = ['system', 'light', 'dark']
 const THEME_LABELS: Record<ThemeMode, string> = {
@@ -144,6 +146,17 @@ function useIsMobile(): boolean {
   return isMobile
 }
 
+// 開いたまま日本時間の日付が変わっても列と取得対象のクールを更新する。
+function useJstNow(): Date {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const elapsedToday = (now.getTime() + JST_OFFSET_MS) % DAY_MS
+    const timer = window.setTimeout(() => setNow(new Date()), DAY_MS - elapsedToday + 100)
+    return () => window.clearTimeout(timer)
+  }, [now])
+  return now
+}
+
 function FavButton({
   isFavorite,
   title,
@@ -227,8 +240,8 @@ function EntryCard({
         )}
         <span className="time">{entry.time}</span>
         {entry.isUpcoming && entry.premiereLabel && (
-          <span className="premiere-badge" title={`第1話の最速配信: ${entry.premiereLabel}`}>
-            初回 {entry.premiereLabel}
+          <span className="premiere-badge" title={`登録済み予定から推定した配信開始日: ${entry.premiereLabel}`}>
+            開始目安 {entry.premiereLabel}
           </span>
         )}
         <span className="favicons">
@@ -273,7 +286,7 @@ function EntryCard({
         href={entry.url}
         target="_blank"
         rel="noreferrer"
-        title={entry.premiereLabel ? `${entry.title}\n第1話の最速配信: ${entry.premiereLabel}` : entry.title}
+        title={entry.premiereLabel ? `${entry.title}\n登録済み予定から推定した配信開始日: ${entry.premiereLabel}` : entry.title}
       >
         {entry.title}
       </a>
@@ -322,7 +335,7 @@ function Calendar({
               {entries.length === 0 && <p className="empty">配信なし</p>}
               {entries.map((entry) => (
                 <EntryCard
-                  key={entry.workId}
+                  key={`${entry.workId}-${entry.minutes}`}
                   entry={entry}
                   isFavorite={favorites.has(entry.workId)}
                   onToggleFavorite={onToggleFavorite}
@@ -404,7 +417,7 @@ function MobileCalendar({
           {entries.length === 0 && <p className="empty">配信なし</p>}
           {entries.map((entry) => (
             <EntryCard
-              key={entry.workId}
+              key={`${entry.workId}-${entry.minutes}`}
               entry={entry}
               isFavorite={favorites.has(entry.workId)}
               onToggleFavorite={onToggleFavorite}
@@ -489,10 +502,12 @@ function HiddenPanel({
 }
 
 export default function App() {
+  const now = useJstNow()
   const [token, setToken] = useState(loadToken)
   const [works, setWorks] = useState<Work[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [warning, setWarning] = useState(false)
   const [hiddenIds, setHiddenIds] = useState<number[]>(() => loadIdList(HIDDEN_STORAGE_KEY))
   const [showHiddenPanel, setShowHiddenPanel] = useState(false)
   const [favoriteIds, setFavoriteIds] = useState<number[]>(() => loadIdList(FAVORITE_STORAGE_KEY))
@@ -502,23 +517,25 @@ export default function App() {
   const isMobile = useIsMobile()
   const [themeMode, cycleTheme] = useTheme()
 
-  const currentSeason = useMemo(() => getCurrentSeason(), [])
-  const [season, setSeason] = useState<Season>(currentSeason)
-  const isCurrentSeason = sameSeason(season, currentSeason)
+  const currentSeason = useMemo(() => getCurrentSeason(now), [now])
+  const [selectedSeason, setSelectedSeason] = useState<Season | null>(null)
+  const season = selectedSeason ?? currentSeason
+  const isCurrentSeason = selectedSeason === null || sameSeason(season, currentSeason)
 
   // 今クール表示のときは、カレンダーの列が入るクールをすべて読み込む。
   // クールの変わり目の週は夏と秋の 2 つになり、列の日付どおりに混在表示できる。
   // ◀ ▶ で明示的にクールを選んでいるときは、そのクールだけを見せる。
   const seasonsToLoad = useMemo(
-    () => (isCurrentSeason ? seasonsForWeek(new Date()) : [season]),
-    [isCurrentSeason, season],
+    () => (isCurrentSeason ? seasonsForWeek(now) : [season]),
+    [isCurrentSeason, season, now],
   )
 
   const load = useCallback(async (accessToken: string) => {
     setLoading(true)
     setError(null)
+    setWarning(false)
     try {
-      setWorks(await fetchWorksForSeasons(accessToken, seasonsToLoad))
+      setWorks(await fetchWorksForSeasons(accessToken, seasonsToLoad, () => setWarning(true)))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setWorks(null)
@@ -541,6 +558,7 @@ export default function App() {
     setToken('')
     setWorks(null)
     setError(null)
+    setWarning(false)
   }
 
   const updateHiddenIds = (ids: number[]) => {
@@ -593,13 +611,13 @@ export default function App() {
         ? buildWeek(
             works.filter((w) => !hiddenIds.includes(w.annictId)),
             new Set(enabledKeys),
-            new Date(),
-            // 放送期間フィルタは今クール表示のときだけ。他クールのプレビューでは
-            // 全作品が放送期間外なので、適用するとカレンダーが空になってしまう
+            now,
+            // 初回前のフィルタは今クール表示のときだけ。過去・未来クールの
+            // プレビューでは曜日別の全作品を表示する。
             isCurrentSeason,
           )
         : null,
-    [works, hiddenIds, enabledKeys, isCurrentSeason],
+    [works, hiddenIds, enabledKeys, isCurrentSeason, now],
   )
   const shownCount = useMemo(
     () => (days ? new Set(days.flatMap((d) => d.entries.map((e) => e.workId))).size : 0),
@@ -626,7 +644,7 @@ export default function App() {
             <button
               className="secondary season-arrow"
               title="前のクール"
-              onClick={() => setSeason(addSeasons(season, -1))}
+              onClick={() => setSelectedSeason(addSeasons(season, -1))}
               disabled={loading}
             >
               ◀
@@ -642,13 +660,13 @@ export default function App() {
             <button
               className="secondary season-arrow"
               title="次のクール"
-              onClick={() => setSeason(addSeasons(season, 1))}
+              onClick={() => setSelectedSeason(addSeasons(season, 1))}
               disabled={loading}
             >
               ▶
             </button>
             {!isCurrentSeason && (
-              <button className="secondary" onClick={() => setSeason(currentSeason)} disabled={loading}>
+              <button className="secondary" onClick={() => setSelectedSeason(null)} disabled={loading}>
                 今クールへ
               </button>
             )}
@@ -709,6 +727,9 @@ export default function App() {
         <HiddenPanel hiddenWorks={hiddenWorks} onRestore={restoreWork} onRestoreAll={restoreAll} />
       )}
       {token && loading && <p className="status">Annict から取得中…</p>}
+      {token && warning && !loading && !error && (
+        <p className="status" role="status">Annict の一部の配信予定を取得できませんでした。表示内容に欠けがある可能性があります。</p>
+      )}
       {token && error && (
         <div className="error">
           <p>{error}</p>

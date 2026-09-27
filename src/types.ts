@@ -9,6 +9,11 @@ export interface Program {
   channel: Channel
 }
 
+export interface ProgramConnection {
+  nodes: (Program | null)[]
+  pageInfo: { hasNextPage: boolean; endCursor: string | null }
+}
+
 export type SeasonName = 'WINTER' | 'SPRING' | 'SUMMER' | 'AUTUMN'
 
 export interface Work {
@@ -18,7 +23,5 @@ export interface Work {
   officialSiteUrl: string | null
   // 作品が属するクール。未登録の作品では null になりうる
   seasonName: SeasonName | null
-  programs: { nodes: (Program | null)[] } | null
-  // 最古の配信(第1話の初配信)。最速配信の曜日を求めるのに使う。
-  firstAired: { nodes: (Program | null)[] } | null
+  programs: ProgramConnection | null
 }
