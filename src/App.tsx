@@ -4,6 +4,7 @@ import {
   fetchWorksForSeasons,
   getCurrentSeason,
   sameSeason,
+  seasonLabel,
   seasonsForWeek,
   seasonsLabel,
   type Season,
@@ -630,7 +631,14 @@ export default function App() {
             >
               ◀
             </button>
-            <span className="season">{seasonsLabel(seasonsToLoad)}</span>
+            {/* ラベルは ◀ ▶ の基準になるクールだけを出す。変わり目の週に読み込む
+                隣のクールはカードの色分けで分かるので、ここには並べない */}
+            <span
+              className="season"
+              title={seasonsToLoad.length > 1 ? `${seasonsLabel(seasonsToLoad)}を表示中` : undefined}
+            >
+              {seasonLabel(season)}
+            </span>
             <button
               className="secondary season-arrow"
               title="次のクール"
