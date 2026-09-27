@@ -37,6 +37,38 @@ describe('buildWeek', () => {
     ])
   })
 
+  it('groups near-simultaneous services and shows their time range', () => {
+    const days = buildWeek([work([
+      program('2026-09-28T15:15:00Z', 'Netflix'),
+      program('2026-09-28T15:30:00Z', 'Prime Video'),
+      program('2026-09-28T16:00:00Z', 'ABEMA'),
+    ])], null, now)
+    const entries = days.find((day) => day.dateLabel === '9/29')!.entries
+    expect(entries.map((entry) => [entry.time, entry.services.length, entry.isLate])).toEqual([
+      ['00:15–00:30', 2, false],
+      ['01:00', 1, true],
+    ])
+  })
+
+  it('keeps the earlier slot on a day even when the later service first registered earlier', () => {
+    const days = buildWeek([work([
+      program('2026-09-28T16:30:00Z', 'ABEMA'),
+      program('2026-07-01T16:30:00Z', 'ABEMA'),
+      program('2026-09-28T15:00:00Z', 'Netflix'),
+    ])], null, now)
+    expect(days.find((day) => day.dateLabel === '9/29')!.entries.map((entry) => [entry.time, entry.isLate])).toEqual([
+      ['00:00', false],
+      ['01:30', true],
+    ])
+  })
+
+  it('allows a short schedule gap but hides a service after fourteen days', () => {
+    const recent = buildWeek([work([program('2026-09-14T12:00:00Z', 'Netflix')])], null, now)
+    expect(recent.flatMap((day) => day.entries)).toHaveLength(1)
+    const stale = buildWeek([work([program('2026-09-13T12:00:00Z', 'Netflix')])], null, now)
+    expect(stale.flatMap((day) => day.entries)).toHaveLength(0)
+  })
+
   it('keeps the true earliest slot when a simulcast crosses midnight', () => {
     const days = buildWeek([work([
       program('2026-09-28T16:00:00Z', 'Prime Video'),

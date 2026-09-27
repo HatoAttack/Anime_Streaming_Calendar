@@ -507,6 +507,7 @@ export default function App() {
   const [works, setWorks] = useState<Work[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [warning, setWarning] = useState(false)
   const [hiddenIds, setHiddenIds] = useState<number[]>(() => loadIdList(HIDDEN_STORAGE_KEY))
   const [showHiddenPanel, setShowHiddenPanel] = useState(false)
   const [favoriteIds, setFavoriteIds] = useState<number[]>(() => loadIdList(FAVORITE_STORAGE_KEY))
@@ -532,8 +533,9 @@ export default function App() {
   const load = useCallback(async (accessToken: string) => {
     setLoading(true)
     setError(null)
+    setWarning(false)
     try {
-      setWorks(await fetchWorksForSeasons(accessToken, seasonsToLoad))
+      setWorks(await fetchWorksForSeasons(accessToken, seasonsToLoad, () => setWarning(true)))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setWorks(null)
@@ -556,6 +558,7 @@ export default function App() {
     setToken('')
     setWorks(null)
     setError(null)
+    setWarning(false)
   }
 
   const updateHiddenIds = (ids: number[]) => {
@@ -724,6 +727,9 @@ export default function App() {
         <HiddenPanel hiddenWorks={hiddenWorks} onRestore={restoreWork} onRestoreAll={restoreAll} />
       )}
       {token && loading && <p className="status">Annict から取得中…</p>}
+      {token && warning && !loading && !error && (
+        <p className="status" role="status">Annict の一部の配信予定を取得できませんでした。表示内容に欠けがある可能性があります。</p>
+      )}
       {token && error && (
         <div className="error">
           <p>{error}</p>

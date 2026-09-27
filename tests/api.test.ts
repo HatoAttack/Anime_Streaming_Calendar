@@ -89,4 +89,45 @@ describe('fetchSeasonWorks', () => {
       vi.useRealTimers()
     }
   })
+
+  it('returns usable data and reports a partial GraphQL error', async () => {
+    const onWarning = vi.fn()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true, status: 200,
+      json: async () => ({
+        data: { searchWorks: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [{
+            annictId: 1, title: '検証用', media: 'TV', officialSiteUrl: null, seasonName: 'AUTUMN',
+            programs: { nodes: [program('Netflix')], pageInfo: { hasNextPage: false, endCursor: null } },
+          }],
+        } },
+        errors: [{ message: 'A partial field error' }],
+      }),
+    }))
+
+    expect(await fetchSeasonWorks('test-token', '2026-autumn', onWarning)).toHaveLength(1)
+    expect(onWarning).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the fetched programs if a later program page has a field error', async () => {
+    const onWarning = vi.fn()
+    const firstPage = {
+      annictId: 1, title: '検証用', media: 'TV', officialSiteUrl: null, seasonName: 'AUTUMN',
+      programs: { nodes: [program('Netflix')], pageInfo: { hasNextPage: true, endCursor: 'cursor-1' } },
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ searchWorks: {
+        pageInfo: { hasNextPage: false, endCursor: null }, nodes: [firstPage],
+      } }))
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({
+        data: { w0: { nodes: [null] } },
+        errors: [{ message: 'A partial field error' }],
+      }) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const works = await fetchSeasonWorks('test-token', '2026-autumn', onWarning)
+    expect(works[0].programs?.nodes).toHaveLength(1)
+    expect(onWarning).toHaveBeenCalledOnce()
+  })
 })

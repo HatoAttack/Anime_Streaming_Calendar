@@ -119,10 +119,11 @@ interface MoreProgramsResponse {
 // 本番ビルド(GitHub Pages などの静的ホスティング)では Annict API を直接呼ぶ
 const GRAPHQL_ENDPOINT = import.meta.env.DEV ? '/graphql' : 'https://api.annict.com/graphql'
 
-async function requestGraphql<T extends { errors?: { message: string }[] }>(
+async function requestGraphql<T extends { data?: unknown; errors?: { message: string }[] }>(
   token: string,
   query: string,
   variables: Record<string, unknown>,
+  onWarning?: () => void,
 ): Promise<T> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const res = await fetch(GRAPHQL_ENDPOINT, {
@@ -146,15 +147,19 @@ async function requestGraphql<T extends { errors?: { message: string }[] }>(
     }
     if (!res.ok) throw new Error(`Annict API エラー (HTTP ${res.status})`)
     const json = await res.json() as T
-    // GraphQL は HTTP 200 でも一部作品・配信予定が欠けることがある。
-    if (json.errors?.length) throw new Error(`Annict API エラー: ${json.errors[0].message}`)
+    // GraphQL は HTTP 200 でも一部フィールドだけ失敗する。取得できた
+    // データは使い、画面に欠損の可能性を知らせる。
+    if (json.errors?.length) {
+      if (!json.data) throw new Error(`Annict API エラー: ${json.errors[0].message}`)
+      onWarning?.()
+    }
     return json
   }
   throw new Error('Annict API のリクエストを再試行できませんでした。')
 }
 
 // 複数作品の続きのページを GraphQL の別名で 1 リクエストにまとめる。
-async function completePrograms(token: string, works: Work[]): Promise<void> {
+async function completePrograms(token: string, works: Work[], onWarning?: () => void): Promise<void> {
   const pending = works.filter((work) =>
     (work.media === 'TV' || work.media === 'WEB') && work.programs?.pageInfo.hasNextPage,
   )
@@ -183,10 +188,11 @@ async function completePrograms(token: string, works: Work[]): Promise<void> {
       }`)
     }
     const query = `query MorePrograms(${declarations.join(', ')}) { ${selections.join('\n')} }`
-    const json = await requestGraphql<MoreProgramsResponse>(token, query, variables)
+    const json = await requestGraphql<MoreProgramsResponse>(token, query, variables, onWarning)
     for (const [index, work] of batch.entries()) {
-      const next = json.data?.[`w${index}`]?.nodes[0]?.programs
+      const next = json.data?.[`w${index}`]?.nodes?.[0]?.programs
       if (!next || !work.programs) {
+        if (json.errors?.length) continue
         throw new Error(`Annict API の配信予定を取得できませんでした (${work.title})`)
       }
       work.programs.nodes.push(...next.nodes)
@@ -197,23 +203,29 @@ async function completePrograms(token: string, works: Work[]): Promise<void> {
 }
 
 // 今クールの作品と放送・配信予定を全件取得する(50件ずつページング)
-export async function fetchSeasonWorks(token: string, seasonSlug: string): Promise<Work[]> {
+export async function fetchSeasonWorks(
+  token: string,
+  seasonSlug: string,
+  onWarning?: () => void,
+): Promise<Work[]> {
   const works: Work[] = []
   let after: string | null = null
 
   const seenCursors = new Set<string>()
   while (true) {
-    const json: SearchWorksResponse = await requestGraphql<SearchWorksResponse>(token, QUERY, { seasons: [seasonSlug], after })
+    const json: SearchWorksResponse = await requestGraphql<SearchWorksResponse>(
+      token, QUERY, { seasons: [seasonSlug], after }, onWarning,
+    )
     const search: NonNullable<SearchWorksResponse['data']>['searchWorks'] | undefined = json.data?.searchWorks
     if (!search) {
       throw new Error('Annict API から予期しない応答が返りました。')
     }
 
     const pageWorks: Work[] = []
-    for (const work of search.nodes) {
+    for (const work of search.nodes ?? []) {
       if (work) pageWorks.push(work)
     }
-    await completePrograms(token, pageWorks)
+    await completePrograms(token, pageWorks, onWarning)
     works.push(...pageWorks)
     if (!search.pageInfo.hasNextPage) break
     if (!search.pageInfo.endCursor || seenCursors.has(search.pageInfo.endCursor)) {
@@ -228,10 +240,14 @@ export async function fetchSeasonWorks(token: string, seasonSlug: string): Promi
 
 // 複数クールをまとめて取得する(クールの変わり目の週で夏と秋を混在させるため)。
 // 同じ作品が両方のクールに登録されていることがあるので annictId で重複を除く。
-export async function fetchWorksForSeasons(token: string, seasons: Season[]): Promise<Work[]> {
+export async function fetchWorksForSeasons(
+  token: string,
+  seasons: Season[],
+  onWarning?: () => void,
+): Promise<Work[]> {
   const byId = new Map<number, Work>()
   for (const season of seasons) {
-    for (const work of await fetchSeasonWorks(token, seasonSlug(season))) {
+    for (const work of await fetchSeasonWorks(token, seasonSlug(season), onWarning)) {
       if (!byId.has(work.annictId)) byId.set(work.annictId, work)
     }
   }

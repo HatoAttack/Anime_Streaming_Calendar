@@ -62,8 +62,8 @@ export function weekColumnMonths(now: Date = new Date()): { year: number; month:
 
 // 昨日の曜日を先頭にした 7 日分のカレンダーを組み立てる。
 // 各作品×配信サービスについて最新の登録予定の曜日・時刻を代表枠に採用する。
-// restrictToAiring が true のとき、列の日付より後に初配信するサービスは除外する。
-// 登録済みの最後の予定は最終回とは限らないため、終了判定には使わない。
+// restrictToAiring が true のとき、初配信前と最後の登録予定から14日以上
+// 経ったサービスは除外する。未登録の次回予定がある場合のため猶予を設ける。
 // 過去・未来クールのプレビューには初回前の判定を適用しない。
 export function buildWeek(
   works: Work[],
@@ -95,9 +95,13 @@ interface ServiceProgram {
 interface Slot {
   weekday: number
   minutes: number
+  endMinutes: number
   time: string
   services: StreamingService[]
 }
+
+const SIMULCAST_TOLERANCE_MINUTES = 30
+const STALE_PROGRAM_GRACE_MS = 14 * DAY_MS
 
 function createWeekColumns(now: Date): {
   days: DayColumn[]
@@ -131,11 +135,27 @@ function firstStarts(programs: ServiceProgram[]): Map<string, number> {
   return byService
 }
 
+function lastStarts(programs: ServiceProgram[]): Map<string, number> {
+  const byService = new Map<string, number>()
+  for (const p of programs) {
+    const startedAt = new Date(p.startedAt).getTime() + JST_OFFSET_MS
+    const last = byService.get(p.service.key)
+    if (last === undefined || startedAt > last) byService.set(p.service.key, startedAt)
+  }
+  return byService
+}
+
+function formatMinutes(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+}
+
 function groupSlots(
   programs: ServiceProgram[],
   firstStartByService: ReadonlyMap<string, number>,
+  lastStartByService: ReadonlyMap<string, number>,
   columnEndByWeekday: ReadonlyMap<number, number>,
   restrictToAiring: boolean,
+  nowShifted: number,
 ): Map<string, Slot> {
   const latestByService = new Map<string, ServiceProgram>()
   for (const program of programs) {
@@ -144,15 +164,27 @@ function groupSlots(
   }
 
   const bySlot = new Map<string, Slot>()
-  for (const { service, startedAt } of latestByService.values()) {
-    const { weekday, minutes, time } = jstInfo(startedAt)
+  const representatives = [...latestByService.values()]
+    .map(({ service, startedAt }) => ({ service, ...jstInfo(startedAt) }))
+    .sort((a, b) => a.weekday - b.weekday || a.minutes - b.minutes)
+  for (const { service, weekday, minutes, time } of representatives) {
     const firstStart = firstStartByService.get(service.key)
+    const lastStart = lastStartByService.get(service.key)
     const columnEnd = columnEndByWeekday.get(weekday)
     if (restrictToAiring && firstStart !== undefined && columnEnd !== undefined && firstStart >= columnEnd) continue
-    const key = `${weekday}:${minutes}`
-    const slot = bySlot.get(key)
-    if (slot) slot.services.push(service)
-    else bySlot.set(key, { weekday, minutes, time, services: [service] })
+    if (restrictToAiring && lastStart !== undefined && nowShifted - lastStart >= STALE_PROGRAM_GRACE_MS) continue
+    // 分単位で分割すると数分差の同時配信まで別カードになる。最初の時刻から
+    // 30分以内だけまとめ、カードには時刻の幅を明示する。
+    const slot = [...bySlot.values()].find((entry) =>
+      entry.weekday === weekday && minutes >= entry.minutes && minutes - entry.minutes <= SIMULCAST_TOLERANCE_MINUTES,
+    )
+    if (slot) {
+      slot.services.push(service)
+      slot.endMinutes = Math.max(slot.endMinutes, minutes)
+      slot.time = slot.endMinutes === slot.minutes ? time : `${formatMinutes(slot.minutes)}–${formatMinutes(slot.endMinutes)}`
+    } else {
+      bySlot.set(`${weekday}:${minutes}`, { weekday, minutes, endMinutes: minutes, time, services: [service] })
+    }
   }
   return bySlot
 }
@@ -166,12 +198,16 @@ function entriesForWork(
 ): { weekday: number; entry: CalendarEntry }[] {
   if (programs.length === 0) return []
   const firstStartByService = firstStarts(programs)
+  const lastStartByService = lastStarts(programs)
   const premiereMs = Math.min(...firstStartByService.values())
   const premiereDate = new Date(premiereMs)
   const premiereLabel = `${premiereDate.getUTCMonth() + 1}/${premiereDate.getUTCDate()}`
   const isUpcoming = premiereMs > now.getTime() + JST_OFFSET_MS
   const season = workSeason(work.seasonName, premiereDate)
-  const bySlot = groupSlots(programs, firstStartByService, columnEndByWeekday, restrictToAiring)
+  const bySlot = groupSlots(
+    programs, firstStartByService, lastStartByService,
+    columnEndByWeekday, restrictToAiring, now.getTime() + JST_OFFSET_MS,
+  )
   const fastestSlot = pickFastestSlot(bySlot, firstStartByService)
   return [...bySlot].map(([key, slot]) => ({
     weekday: slot.weekday,
@@ -227,17 +263,24 @@ function collectServicePrograms(
 
 // 最古の配信時刻で比較する。曜日順や 00:00 をまたぐ時刻順には依存させない。
 function pickFastestSlot(
-  bySlot: Map<string, { services: StreamingService[] }>,
+  bySlot: Map<string, Slot>,
   firstStartByService: ReadonlyMap<string, number>,
 ): string | null {
-  let fastest: { key: string; startedAt: number } | null = null
+  let fastest: { key: string; startedAt: number; weekday: number } | null = null
   for (const [key, info] of bySlot) {
     for (const service of info.services) {
       const startedAt = firstStartByService.get(service.key)
       if (startedAt !== undefined && (!fastest || startedAt < fastest.startedAt)) {
-        fastest = { key, startedAt }
+        fastest = { key, startedAt, weekday: info.weekday }
       }
     }
   }
-  return fastest?.key ?? null
+  if (!fastest) return null
+  // 初回に最速だったサービスの曜日を維持し、その曜日内では表示時刻が
+  // 最も早い枠を残す。曜日が同じなのに遅い1サービスだけ残るのを防ぐ。
+  let earliest = fastest.key
+  for (const [key, slot] of bySlot) {
+    if (slot.weekday === fastest.weekday && slot.minutes < bySlot.get(earliest)!.minutes) earliest = key
+  }
+  return earliest
 }
